@@ -218,11 +218,6 @@ const PairingScreen: React.FC<PairingScreenProps> = ({ onPaired }) => {
               <p className="text-sm text-gray-400">
                 This will be your identity in the chat and on your digital certificate
               </p>
-              <div className="bg-amber-900/30 border border-amber-700 rounded-lg p-3">
-                <p className="text-amber-300 text-sm">
-                  <strong>Note:</strong> If someone else uses the same username, a unique identifier will be added automatically to prevent conflicts.
-                </p>
-              </div>
               <Button
                 onClick={handleSetUsername}
                 className="w-full"

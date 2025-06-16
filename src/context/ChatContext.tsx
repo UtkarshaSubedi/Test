@@ -51,12 +51,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     broadcastChannel.onmessage = async (event) => {
       if (event.data.type === 'message' && event.data.roomCode === pairingCode) {
         try {
-          // Verify message signature
-          const isVerified = await crypto.verifyMessage(
-            event.data.content,
-            event.data.signature,
-            event.data.certificate
-          );
+          // Verify message signature if certificate is provided
+          let isVerified = false;
+          if (event.data.certificate && event.data.signature) {
+            isVerified = await crypto.verifyMessage(
+              event.data.content,
+              event.data.signature,
+              event.data.certificate
+            );
+          }
 
           const newMessage: Message = {
             id: uuidv4(),
@@ -73,6 +76,19 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setMessages(prev => [...prev, newMessage]);
         } catch (error) {
           console.error('Failed to process received message:', error);
+          // Still add the message even if verification fails
+          const newMessage: Message = {
+            id: uuidv4(),
+            content: event.data.content,
+            type: event.data.messageType,
+            timestamp: Date.now(),
+            sender: 'peer',
+            encrypted: true,
+            verified: false,
+            signature: event.data.signature,
+            senderCert: event.data.certificate
+          };
+          setMessages(prev => [...prev, newMessage]);
         }
       } else if (event.data.type === 'room_closed' && event.data.roomCode === pairingCode) {
         leaveChat();
@@ -127,16 +143,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return false;
       }
 
-      // Check for username conflicts and handle them
-      if (room.creatorCert && crypto.certificate) {
-        const creatorUsername = room.creatorCert.subject.split('-')[0];
-        const myUsername = crypto.certificate.subject.split('-')[0];
-        
-        if (creatorUsername === myUsername) {
-          console.log('Username conflict detected, but certificates are unique');
-        }
-      }
-
       await crypto.generateKeyPair();
       setPairingCode(code);
       setIsPaired(true);
@@ -151,13 +157,21 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     content: string,
     type: 'text' | 'image' | 'audio' | 'document'
   ): Promise<void> => {
-    if (!isPaired || !pairingCode || !crypto.certificate) {
-      throw new Error('Not connected, paired, or certificate not available');
+    if (!isPaired || !pairingCode) {
+      throw new Error('Not connected or paired');
     }
 
     try {
-      // Sign the message
-      const signature = await crypto.signMessage(content);
+      let signature = '';
+      
+      // Sign the message if we have a certificate and signing capability
+      if (crypto.certificate && crypto.signMessage) {
+        try {
+          signature = await crypto.signMessage(content);
+        } catch (signError) {
+          console.warn('Failed to sign message, sending without signature:', signError);
+        }
+      }
 
       const message: Message = {
         id: uuidv4(),
