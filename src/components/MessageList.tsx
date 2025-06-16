@@ -67,7 +67,7 @@ const MessageList: React.FC<MessageListProps> = ({ messages }) => {
                   {message.type === 'audio' && (
                     <div className="my-1">
                       <audio controls className="w-full max-w-[240px]">
-                        <source src={message.content} type="audio/wav" />
+                        <source src={message.content} type="audio/webm" />
                         Your browser does not support audio playback.
                       </audio>
                     </div>
@@ -85,22 +85,22 @@ const MessageList: React.FC<MessageListProps> = ({ messages }) => {
                     </div>
                   )}
                   
-                  {/* Message footer with time, encryption status, and signature verification */}
+                  {/* Message footer with time and encryption status */}
                   <div className="flex items-center justify-between mt-2">
                     <div className="flex items-center space-x-1">
                       <span className="text-xs opacity-70">
                         {formatTime(message.timestamp)}
                       </span>
-                      
-                      {message.encrypted ? (
-                        <Lock className="w-3 h-3 opacity-70" />
-                      ) : (
-                        <AlertTriangle className="w-3 h-3 text-amber-400" />
-                      )}
                     </div>
 
-                    {/* Signature verification indicator */}
+                    {/* Security indicators */}
                     <div className="flex items-center space-x-1">
+                      {message.encrypted ? (
+                        <Lock className="w-3 h-3 opacity-70" title="End-to-end encrypted" />
+                      ) : (
+                        <AlertTriangle className="w-3 h-3 text-amber-400" title="Not encrypted" />
+                      )}
+                      
                       {message.signature && (
                         <>
                           {message.verified ? (
@@ -110,24 +110,8 @@ const MessageList: React.FC<MessageListProps> = ({ messages }) => {
                           )}
                         </>
                       )}
-                      
-                      {message.senderCert && (
-                        <div className="text-xs opacity-70" title={`From: ${message.senderCert.subject}`}>
-                          🏆
-                        </div>
-                      )}
                     </div>
                   </div>
-
-                  {/* Certificate info for peer messages */}
-                  {message.sender === 'peer' && message.senderCert && (
-                    <div className="mt-2 pt-2 border-t border-gray-600 text-xs opacity-75">
-                      <div className="flex items-center space-x-1">
-                        <Shield className="w-3 h-3" />
-                        <span>Cert: {message.senderCert.subject}</span>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             ))}

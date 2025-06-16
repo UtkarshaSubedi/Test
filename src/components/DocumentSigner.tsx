@@ -37,8 +37,18 @@ const DocumentSigner: React.FC = () => {
   };
 
   const signDocument = async () => {
-    if (!selectedFile || !crypto.signingKeyPair || !crypto.certificate) {
-      setError('Please select a file and ensure you have a valid certificate');
+    if (!selectedFile) {
+      setError('Please select a file to sign');
+      return;
+    }
+
+    if (!crypto.signingKeyPair) {
+      setError('Signing key not available. Please refresh and try again.');
+      return;
+    }
+
+    if (!crypto.certificate) {
+      setError('Digital certificate not available. Please ensure you have set a username.');
       return;
     }
 
@@ -66,8 +76,8 @@ const DocumentSigner: React.FC = () => {
       URL.revokeObjectURL(url);
 
     } catch (err) {
-      setError('Failed to sign document. Please try again.');
       console.error('Document signing failed:', err);
+      setError('Failed to sign document. Please ensure you have a valid certificate and try again.');
     } finally {
       setIsProcessing(false);
     }
@@ -114,8 +124,8 @@ const DocumentSigner: React.FC = () => {
       setDocumentSignature(parsedSignature);
 
     } catch (err) {
-      setError('Failed to verify document. Please check your files and try again.');
       console.error('Document verification failed:', err);
+      setError('Failed to verify document. Please check your files and try again.');
       setVerificationResult(false);
     } finally {
       setIsProcessing(false);
@@ -255,10 +265,10 @@ const DocumentSigner: React.FC = () => {
               <div className="flex items-center space-x-3">
                 <Key className="w-5 h-5 text-green-400" />
                 <div>
-                  <p className="font-medium text-white">Certificate: {crypto.certificate.subject}</p>
+                  <p className="font-medium text-white">Certificate: {crypto.certificate.subject.split('-')[0]}</p>
                   <p className="text-sm text-gray-400">
-                    Issued: {formatDate(crypto.certificate.issuedAt)} • 
-                    Expires: {formatDate(crypto.certificate.expiresAt)}
+                    Session Started: {formatDate(crypto.certificate.issuedAt)} • 
+                    Valid Until: {formatDate(crypto.certificate.expiresAt)}
                   </p>
                 </div>
               </div>
@@ -267,7 +277,7 @@ const DocumentSigner: React.FC = () => {
 
           <Button
             onClick={signDocument}
-            disabled={!selectedFile || !crypto.certificate || isProcessing}
+            disabled={!selectedFile || !crypto.certificate || !crypto.signingKeyPair || isProcessing}
             isLoading={isProcessing}
             className="w-full"
           >
@@ -366,7 +376,7 @@ const DocumentSigner: React.FC = () => {
               {documentSignature && (
                 <div className="mt-3 space-y-2 text-sm">
                   <p className="text-gray-300">
-                    <strong>Signer:</strong> {documentSignature.certificate.subject}
+                    <strong>Signer:</strong> {documentSignature.certificate.subject.split('-')[0]}
                   </p>
                   <p className="text-gray-300">
                     <strong>Signed:</strong> {formatDate(documentSignature.timestamp)}

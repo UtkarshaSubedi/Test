@@ -42,6 +42,7 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [sharedSecret, setSharedSecret] = useState<CryptoKey | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   const [certificateManager] = useState(() => CertificateManager.getInstance());
+  const [sessionStartTime] = useState(Date.now());
 
   // Initialize crypto on mount - but don't generate certificate until username is set
   useEffect(() => {
@@ -124,7 +125,7 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   };
 
-  // Generate certificate for user
+  // Generate certificate for user - valid only for current session
   const generateCertificate = async (subject: string): Promise<Certificate> => {
     if (!signingKeyPair) {
       // If signing key pair doesn't exist, generate it first
@@ -139,10 +140,19 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       // Add timestamp to make username unique in case of duplicates
       const uniqueSubject = `${subject}-${Date.now().toString(36)}`;
       
+      // Certificate valid only for current session (expires when connection ends)
+      const sessionDuration = 24 * 60 * 60 * 1000; // 24 hours max
+      
       const cert = await certificateManager.issueCertificate(
         uniqueSubject,
-        signingKeyPair.publicKey
+        signingKeyPair.publicKey,
+        1 // 1 day validity, but will be invalidated when session ends
       );
+      
+      // Override the timestamps to reflect session-based validity
+      cert.issuedAt = sessionStartTime;
+      cert.expiresAt = sessionStartTime + sessionDuration;
+      
       setCertificate(cert);
       return cert;
     } catch (error) {
@@ -224,10 +234,12 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     senderCert: Certificate
   ): Promise<boolean> => {
     try {
-      // First verify the certificate
+      // First verify the certificate is still valid for current session
       const isCertValid = await certificateManager.verifyCertificate(senderCert);
-      if (!isCertValid) {
-        console.warn('Invalid certificate for message verification');
+      const isSessionValid = Date.now() < senderCert.expiresAt;
+      
+      if (!isCertValid || !isSessionValid) {
+        console.warn('Invalid or expired certificate for message verification');
         return false;
       }
 
@@ -274,7 +286,9 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // Verify certificate
   const verifyCertificate = async (cert: Certificate): Promise<boolean> => {
     try {
-      return await certificateManager.verifyCertificate(cert);
+      const isValid = await certificateManager.verifyCertificate(cert);
+      const isSessionValid = Date.now() < cert.expiresAt;
+      return isValid && isSessionValid;
     } catch (error) {
       console.error('Certificate verification failed:', error);
       return false;

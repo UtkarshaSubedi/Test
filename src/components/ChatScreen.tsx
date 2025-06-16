@@ -89,13 +89,30 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
 
   const startRecording = async () => {
     if (!isPaired) return;
+    
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Request microphone permission
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100
+        } 
+      });
+      
       setAudioStream(stream);
       setIsRecording(true);
       setAudioChunks([]);
 
-      const recorder = new MediaRecorder(stream);
+      // Check if MediaRecorder is supported
+      if (!MediaRecorder.isTypeSupported('audio/webm')) {
+        throw new Error('Audio recording not supported in this browser');
+      }
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm'
+      });
+      
       mediaRecorder.current = recorder;
 
       recorder.ondataavailable = (e) => {
@@ -104,29 +121,63 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
         }
       };
 
-      recorder.start();
+      recorder.onerror = (e) => {
+        console.error('MediaRecorder error:', e);
+        stopRecording();
+      };
+
+      recorder.start(100); // Collect data every 100ms
     } catch (error) {
       console.error('Failed to start recording:', error);
+      alert('Could not access microphone. Please check permissions and try again.');
+      setIsRecording(false);
     }
   };
 
   const stopRecording = async () => {
-    if (!mediaRecorder.current) return;
+    if (!mediaRecorder.current || !isRecording) return;
 
     return new Promise<void>((resolve) => {
-      mediaRecorder.current!.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const audioDataUrl = e.target?.result as string;
-          try {
-            await sendMessage(audioDataUrl, 'audio');
-          } catch (error) {
-            console.error('Failed to send audio:', error);
+      if (!mediaRecorder.current) {
+        resolve();
+        return;
+      }
+
+      mediaRecorder.current.onstop = async () => {
+        try {
+          if (audioChunks.length === 0) {
+            console.warn('No audio data recorded');
+            resolve();
+            return;
           }
-        };
-        reader.readAsDataURL(audioBlob);
+
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          
+          // Check if we have actual audio data
+          if (audioBlob.size === 0) {
+            console.warn('Empty audio recording');
+            resolve();
+            return;
+          }
+
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+            const audioDataUrl = e.target?.result as string;
+            try {
+              await sendMessage(audioDataUrl, 'audio');
+            } catch (error) {
+              console.error('Failed to send audio:', error);
+            }
+          };
+          reader.onerror = () => {
+            console.error('Failed to read audio data');
+          };
+          reader.readAsDataURL(audioBlob);
+        } catch (error) {
+          console.error('Error processing audio:', error);
+        }
         
+        // Cleanup
         if (audioStream) {
           audioStream.getTracks().forEach(track => track.stop());
         }
@@ -136,7 +187,10 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
         resolve();
       };
 
-      mediaRecorder.current!.stop();
+      // Stop recording
+      if (mediaRecorder.current.state === 'recording') {
+        mediaRecorder.current.stop();
+      }
     });
   };
 
@@ -206,7 +260,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
               className="flex items-center space-x-2 px-3 py-1 bg-indigo-700 rounded-full text-sm hover:bg-indigo-600 transition-colors"
             >
               <Shield className="w-4 h-4" />
-              <span className="hidden sm:inline">{certificate.subject}</span>
+              <span className="hidden sm:inline">{certificate.subject.split('-')[0]}</span>
             </button>
           )}
         </div>
@@ -246,19 +300,25 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
           <div className="space-y-2 text-sm">
             <div>
               <span className="text-gray-400">Subject:</span>
-              <span className="ml-2 font-mono">{certificate.subject}</span>
+              <span className="ml-2 font-mono">{certificate.subject.split('-')[0]}</span>
             </div>
             <div>
-              <span className="text-gray-400">Issued:</span>
+              <span className="text-gray-400">Session Started:</span>
               <span className="ml-2">{formatDate(certificate.issuedAt)}</span>
             </div>
             <div>
-              <span className="text-gray-400">Expires:</span>
+              <span className="text-gray-400">Valid Until:</span>
               <span className="ml-2">{formatDate(certificate.expiresAt)}</span>
             </div>
             <div>
-              <span className="text-gray-400">ID:</span>
-              <span className="ml-2 font-mono text-xs break-all">{certificate.id}</span>
+              <span className="text-gray-400">Status:</span>
+              <span className="ml-2 text-green-400">Active Session</span>
+            </div>
+            <div className="bg-green-900/30 border border-green-700 rounded p-2 mt-2">
+              <p className="text-green-300 text-xs">
+                ✓ Certificate expires when connection ends<br/>
+                ✓ Valid only for current chat session
+              </p>
             </div>
           </div>
         </div>
@@ -274,7 +334,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
             {certificate && (
               <div className="mt-4 text-center">
                 <p className="text-xs text-gray-500">Your digital identity is ready</p>
-                <p className="text-xs font-mono text-indigo-400">{certificate.subject}</p>
+                <p className="text-xs font-mono text-indigo-400">{certificate.subject.split('-')[0]}</p>
               </div>
             )}
           </div>
@@ -320,7 +380,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
                   isRecording ? 'text-red-500 animate-pulse' : 'text-gray-400 hover:text-white'
                 } transition-colors ${!isPaired && 'opacity-50 cursor-not-allowed'}`}
                 disabled={!isPaired}
-                title="Record Audio"
+                title={isRecording ? 'Stop Recording' : 'Record Audio'}
               >
                 <Mic className="w-5 h-5" />
                 {isRecording && (
