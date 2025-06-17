@@ -59,6 +59,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
       setMessageInput('');
     } catch (error) {
       console.error('Failed to send message:', error);
+      alert('Failed to send message. Please try again.');
     }
   };
 
@@ -80,6 +81,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
       reader.readAsDataURL(file);
     } catch (error) {
       console.error('Failed to upload image:', error);
+      alert('Failed to upload image. Please try again.');
     } finally {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -91,7 +93,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
     if (!isPaired) return;
     
     try {
-      // Request microphone permission
+      // Request microphone permission with better error handling
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
@@ -104,15 +106,19 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
       setIsRecording(true);
       setAudioChunks([]);
 
-      // Check if MediaRecorder is supported
+      // Check MediaRecorder support with fallback
+      let mimeType = 'audio/webm';
       if (!MediaRecorder.isTypeSupported('audio/webm')) {
-        throw new Error('Audio recording not supported in this browser');
+        if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+          mimeType = 'audio/ogg';
+        } else {
+          throw new Error('No supported audio format found');
+        }
       }
 
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm'
-      });
-      
+      const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorder.current = recorder;
 
       recorder.ondataavailable = (e) => {
@@ -124,6 +130,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
       recorder.onerror = (e) => {
         console.error('MediaRecorder error:', e);
         stopRecording();
+        alert('Recording error occurred. Please try again.');
       };
 
       recorder.start(100); // Collect data every 100ms
@@ -151,7 +158,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
             return;
           }
 
-          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          const audioBlob = new Blob(audioChunks, { 
+            type: mediaRecorder.current?.mimeType || 'audio/webm' 
+          });
           
           // Check if we have actual audio data
           if (audioBlob.size === 0) {
@@ -167,14 +176,17 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
               await sendMessage(audioDataUrl, 'audio');
             } catch (error) {
               console.error('Failed to send audio:', error);
+              alert('Failed to send audio message. Please try again.');
             }
           };
           reader.onerror = () => {
             console.error('Failed to read audio data');
+            alert('Failed to process audio recording.');
           };
           reader.readAsDataURL(audioBlob);
         } catch (error) {
           console.error('Error processing audio:', error);
+          alert('Error processing audio recording.');
         }
         
         // Cleanup
@@ -242,8 +254,8 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
       <div className="bg-gray-800 p-4 flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <div className="flex items-center">
-            <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
-            <span className="font-medium">Secure Connection</span>
+            <div className={`w-3 h-3 rounded-full mr-2 ${isPaired ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+            <span className="font-medium">{isPaired ? 'Connected' : 'Waiting for Connection'}</span>
           </div>
           {pairingCode && (
             <button

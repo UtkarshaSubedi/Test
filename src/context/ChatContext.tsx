@@ -43,7 +43,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isPaired, setIsPaired] = useState(false);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [userId] = useState(() => uuidv4());
-  const [messageIndex, setMessageIndex] = useState(0);
   const crypto = useCrypto();
 
   useEffect(() => {
@@ -53,12 +52,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
           // Verify message signature if certificate is provided
           let isVerified = false;
-          if (event.data.certificate && event.data.signature) {
-            isVerified = await crypto.verifyMessage(
-              event.data.content,
-              event.data.signature,
-              event.data.certificate
-            );
+          if (event.data.certificate && event.data.signature && crypto.verifyMessage) {
+            try {
+              isVerified = await crypto.verifyMessage(
+                event.data.content,
+                event.data.signature,
+                event.data.certificate
+              );
+            } catch (verifyError) {
+              console.warn('Message verification failed:', verifyError);
+              isVerified = false;
+            }
           }
 
           const newMessage: Message = {
@@ -83,7 +87,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             type: event.data.messageType,
             timestamp: Date.now(),
             sender: 'peer',
-            encrypted: true,
+            encrypted: false,
             verified: false,
             signature: event.data.signature,
             senderCert: event.data.certificate
@@ -92,6 +96,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       } else if (event.data.type === 'room_closed' && event.data.roomCode === pairingCode) {
         leaveChat();
+      } else if (event.data.type === 'peer_joined' && event.data.roomCode === pairingCode) {
+        // When someone joins our room, we become paired
+        setIsPaired(true);
       }
     };
 
@@ -102,24 +109,22 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const generateCode = async (): Promise<string> => {
     try {
-      if (!crypto.certificate) {
-        throw new Error('Certificate not ready');
-      }
-
-      await crypto.generateKeyPair();
-      const code = await crypto.generatePairingCode();
+      // Generate a simple 6-character code
+      const code = Math.random().toString(36).substr(2, 6).toUpperCase();
       
       // Save room to localStorage with user certificate info
       const rooms = getRooms();
       rooms[code] = {
         creator: userId,
         creatorCert: crypto.certificate,
-        created: Date.now()
+        created: Date.now(),
+        active: true
       };
       saveRooms(rooms);
       
       setPairingCode(code);
-      setIsPaired(true);
+      // Don't set paired yet - wait for someone to join
+      setIsPaired(false);
       return code;
     } catch (error) {
       console.error('Failed to generate code:', error);
@@ -132,8 +137,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const rooms = getRooms();
       const room = rooms[code];
       
-      if (!room) {
-        console.log('Room not found:', code);
+      if (!room || !room.active) {
+        console.log('Room not found or inactive:', code);
         return false;
       }
 
@@ -143,9 +148,16 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return false;
       }
 
-      await crypto.generateKeyPair();
       setPairingCode(code);
       setIsPaired(true);
+      
+      // Notify the room creator that someone joined
+      broadcastChannel.postMessage({
+        type: 'peer_joined',
+        roomCode: code,
+        joiner: userId
+      });
+      
       return true;
     } catch (error) {
       console.error('Failed to join chat:', error);
@@ -197,7 +209,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         certificate: crypto.certificate
       });
 
-      setMessageIndex(prev => prev + 1);
     } catch (error) {
       console.error('Failed to send message:', error);
       throw error;
@@ -207,22 +218,23 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const leaveChat = () => {
     if (pairingCode) {
       const rooms = getRooms();
-      if (rooms[pairingCode]?.creator === userId) {
-        delete rooms[pairingCode];
-        saveRooms(rooms);
-        
-        // Notify other tabs that the room is closed
-        broadcastChannel.postMessage({
-          type: 'room_closed',
-          roomCode: pairingCode
-        });
+      if (rooms[pairingCode]) {
+        if (rooms[pairingCode].creator === userId) {
+          // If we're the creator, mark room as inactive
+          rooms[pairingCode].active = false;
+          saveRooms(rooms);
+          
+          // Notify other tabs that the room is closed
+          broadcastChannel.postMessage({
+            type: 'room_closed',
+            roomCode: pairingCode
+          });
+        }
       }
     }
     setMessages([]);
     setIsPaired(false);
     setPairingCode(null);
-    setMessageIndex(0);
-    crypto.reset();
   };
 
   return (

@@ -9,7 +9,7 @@ interface PairingScreenProps {
 }
 
 const PairingScreen: React.FC<PairingScreenProps> = ({ onPaired }) => {
-  const { generateCode, joinChat, pairingCode } = useChat();
+  const { generateCode, joinChat, pairingCode, isPaired } = useChat();
   const { certificate, isInitializing, generateCertificate } = useCrypto();
   const [inputCode, setInputCode] = useState('');
   const [username, setUsername] = useState('');
@@ -29,6 +29,13 @@ const PairingScreen: React.FC<PairingScreenProps> = ({ onPaired }) => {
       setUsername(savedUsername);
     }
   }, [certificate]);
+
+  // Auto-navigate to chat when paired
+  useEffect(() => {
+    if (isPaired) {
+      onPaired();
+    }
+  }, [isPaired, onPaired]);
 
   const handleSetUsername = async () => {
     if (!username.trim()) {
@@ -98,7 +105,7 @@ const PairingScreen: React.FC<PairingScreenProps> = ({ onPaired }) => {
     try {
       const success = await joinChat(inputCode.trim().toUpperCase());
       if (success) {
-        onPaired();
+        // onPaired will be called automatically via useEffect when isPaired becomes true
       } else {
         setError('Invalid code or room not found. Make sure someone has created the room first.');
       }
@@ -259,10 +266,9 @@ const PairingScreen: React.FC<PairingScreenProps> = ({ onPaired }) => {
                       <span>Messages will be digitally signed with your certificate</span>
                     </div>
                   </div>
-                  <Button onClick={() => onPaired()} className="mt-4 w-full">
-                    Continue to Chat
-                    <ArrowRight className="ml-2 w-5 h-5" />
-                  </Button>
+                  <p className="text-sm text-gray-400">
+                    Waiting for someone to join...
+                  </p>
                 </div>
               ) : (
                 <>
