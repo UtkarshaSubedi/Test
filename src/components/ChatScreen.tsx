@@ -21,6 +21,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
   const [showCode, setShowCode] = useState(false);
   const [showDocumentSigner, setShowDocumentSigner] = useState(false);
   const [showCertInfo, setShowCertInfo] = useState(false);
+  const [showAudioPermissionDialog, setShowAudioPermissionDialog] = useState(false);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
@@ -89,8 +90,8 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
     }
   };
 
-  const startRecording = async () => {
-    if (!isPaired) return;
+  const requestAudioPermission = async () => {
+    setShowAudioPermissionDialog(false);
     
     try {
       // Request microphone permission with better error handling
@@ -136,9 +137,16 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
       recorder.start(100); // Collect data every 100ms
     } catch (error) {
       console.error('Failed to start recording:', error);
-      alert('Could not access microphone. Please check permissions and try again.');
+      alert('Microphone access denied. Please enable microphone permissions in your browser settings and try again.');
       setIsRecording(false);
     }
+  };
+
+  const startRecording = async () => {
+    if (!isPaired) return;
+    
+    // Show permission dialog instead of directly requesting
+    setShowAudioPermissionDialog(true);
   };
 
   const stopRecording = async () => {
@@ -250,6 +258,37 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
 
   return (
     <div className="max-w-4xl mx-auto h-screen flex flex-col">
+      {/* Audio Permission Dialog */}
+      {showAudioPermissionDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md mx-4">
+            <div className="flex items-center space-x-3 mb-4">
+              <Mic className="w-6 h-6 text-blue-400" />
+              <h3 className="text-lg font-semibold">Microphone Access Required</h3>
+            </div>
+            <p className="text-gray-300 mb-6">
+              To record and send voice messages, we need access to your microphone. 
+              Your audio will be encrypted and sent securely.
+            </p>
+            <div className="flex space-x-3">
+              <Button
+                onClick={requestAudioPermission}
+                className="flex-1"
+              >
+                Allow Microphone
+              </Button>
+              <Button
+                onClick={() => setShowAudioPermissionDialog(false)}
+                variant="secondary"
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-gray-800 p-4 flex items-center justify-between">
         <div className="flex items-center space-x-4">

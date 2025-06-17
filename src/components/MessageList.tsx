@@ -1,6 +1,6 @@
 import React from 'react';
 import { Message } from '../types';
-import { Lock, AlertTriangle, CheckCircle, XCircle, Shield } from 'lucide-react';
+import { Lock, AlertTriangle, CheckCircle, XCircle, Shield, User } from 'lucide-react';
 
 interface MessageListProps {
   messages: Message[];
@@ -11,6 +11,19 @@ const MessageList: React.FC<MessageListProps> = ({ messages }) => {
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+  
+  // Get sender name from certificate or fallback
+  const getSenderName = (message: Message): string => {
+    if (message.sender === 'self') {
+      return 'You';
+    }
+    
+    if (message.senderCert?.subject) {
+      return message.senderCert.subject.split('-')[0];
+    }
+    
+    return 'Anonymous';
   };
   
   // Group messages by day
@@ -45,71 +58,65 @@ const MessageList: React.FC<MessageListProps> = ({ messages }) => {
                 className={`flex ${message.sender === 'self' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-lg p-3 ${
+                  className={`max-w-[80%] rounded-lg ${
                     message.sender === 'self'
                       ? 'bg-indigo-600 text-white rounded-br-none'
                       : 'bg-gray-700 text-gray-100 rounded-bl-none'
                   }`}
                 >
-                  {/* Message content based on type */}
-                  {message.type === 'text' && <p>{message.content}</p>}
-                  
-                  {message.type === 'image' && (
-                    <div className="my-1">
-                      <img
-                        src={message.content}
-                        alt="Encrypted image"
-                        className="rounded max-h-60 max-w-full"
-                      />
-                    </div>
-                  )}
-                  
-                  {message.type === 'audio' && (
-                    <div className="my-1">
-                      <audio controls className="w-full max-w-[240px]">
-                        <source src={message.content} type="audio/webm" />
-                        Your browser does not support audio playback.
-                      </audio>
-                    </div>
-                  )}
+                  {/* Sender name header */}
+                  <div className={`px-3 pt-2 pb-1 text-xs opacity-75 flex items-center space-x-1 ${
+                    message.sender === 'self' ? 'text-indigo-200' : 'text-gray-400'
+                  }`}>
+                    <User className="w-3 h-3" />
+                    <span className="font-medium">{getSenderName(message)}</span>
+                    {message.encrypted && <Lock className="w-3 h-3" />}
+                    {message.verified && <Shield className="w-3 h-3 text-green-400" />}
+                  </div>
 
-                  {message.type === 'document' && (
-                    <div className="my-1 p-3 bg-gray-600 rounded-lg">
-                      <div className="flex items-center space-x-2">
-                        <Shield className="w-5 h-5 text-blue-400" />
-                        <div>
-                          <p className="font-medium">Signed Document</p>
-                          <p className="text-sm opacity-75">Click to download</p>
+                  {/* Message content */}
+                  <div className="px-3 pb-3">
+                    {/* Message content based on type */}
+                    {message.type === 'text' && <p>{message.content}</p>}
+                    
+                    {message.type === 'image' && (
+                      <div className="my-1">
+                        <img
+                          src={message.content}
+                          alt="Encrypted image"
+                          className="rounded max-h-60 max-w-full"
+                        />
+                      </div>
+                    )}
+                    
+                    {message.type === 'audio' && (
+                      <div className="my-1">
+                        <audio controls className="w-full max-w-[240px]">
+                          <source src={message.content} type="audio/webm" />
+                          <source src={message.content} type="audio/mp4" />
+                          <source src={message.content} type="audio/ogg" />
+                          Your browser does not support audio playback.
+                        </audio>
+                      </div>
+                    )}
+
+                    {message.type === 'document' && (
+                      <div className="my-1 p-3 bg-gray-600 rounded-lg">
+                        <div className="flex items-center space-x-2">
+                          <Shield className="w-5 h-5 text-blue-400" />
+                          <div>
+                            <p className="font-medium">Signed Document</p>
+                            <p className="text-sm opacity-75">Click to download</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-                  
-                  {/* Message footer with time and encryption status */}
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center space-x-1">
+                    )}
+                    
+                    {/* Message footer with time */}
+                    <div className="flex items-center justify-between mt-2">
                       <span className="text-xs opacity-70">
                         {formatTime(message.timestamp)}
                       </span>
-                    </div>
-
-                    {/* Security indicators */}
-                    <div className="flex items-center space-x-1">
-                      {message.encrypted ? (
-                        <Lock className="w-3 h-3 opacity-70" title="End-to-end encrypted" />
-                      ) : (
-                        <AlertTriangle className="w-3 h-3 text-amber-400" title="Not encrypted" />
-                      )}
-                      
-                      {message.signature && (
-                        <>
-                          {message.verified ? (
-                            <CheckCircle className="w-3 h-3 text-green-400" title="Signature verified" />
-                          ) : (
-                            <XCircle className="w-3 h-3 text-red-400" title="Signature verification failed" />
-                          )}
-                        </>
-                      )}
                     </div>
                   </div>
                 </div>
