@@ -25,7 +25,6 @@ const DocumentSigner: React.FC = () => {
       setError('');
       setVerificationResult(null);
       setDocumentSignature(null);
-      console.log('File selected:', file.name, 'Size:', file.size);
     }
   };
 
@@ -34,30 +33,22 @@ const DocumentSigner: React.FC = () => {
     if (file) {
       setSignatureFile(file);
       setError('');
-      console.log('Signature file selected:', file.name);
     }
   };
 
   const signDocument = async () => {
-    console.log('Starting document signing process...');
-    console.log('Selected file:', selectedFile?.name);
-    console.log('Crypto certificate:', crypto.certificate?.subject);
-    console.log('Signing key pair available:', !!crypto.signingKeyPair);
-
     if (!selectedFile) {
       setError('Please select a file to sign');
       return;
     }
 
-    if (!crypto.signingKeyPair) {
+    if (!crypto.signingKeyPair?.privateKey) {
       setError('Signing key not available. Please refresh and try again.');
-      console.error('No signing key pair available');
       return;
     }
 
     if (!crypto.certificate) {
       setError('Digital certificate not available. Please ensure you have set a username.');
-      console.error('No certificate available');
       return;
     }
 
@@ -65,16 +56,20 @@ const DocumentSigner: React.FC = () => {
     setError('');
 
     try {
-      console.log('Creating document signature...');
+      // Ensure we have the private key as CryptoKey
+      const privateKey = crypto.signingKeyPair.privateKey;
       
-      // Create the signature
+      // Verify it's actually a CryptoKey
+      if (!(privateKey instanceof CryptoKey)) {
+        throw new Error('Invalid private key format');
+      }
+
       const signature = await DigitalSigner.signDocument(
         selectedFile,
-        crypto.signingKeyPair.privateKey,
+        privateKey,
         crypto.certificate
       );
 
-      console.log('Document signature created:', signature);
       setDocumentSignature(signature);
 
       // Create and download signature file
@@ -87,8 +82,6 @@ const DocumentSigner: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
-      console.log('Signature file downloaded successfully');
 
     } catch (err) {
       console.error('Document signing failed:', err);
@@ -108,8 +101,6 @@ const DocumentSigner: React.FC = () => {
     setError('');
 
     try {
-      console.log('Starting document verification...');
-      
       // Parse signature file
       const parsedSignature = await DigitalSigner.parseSignatureFile(signatureFile);
       if (!parsedSignature) {
@@ -117,8 +108,6 @@ const DocumentSigner: React.FC = () => {
         setIsProcessing(false);
         return;
       }
-
-      console.log('Parsed signature:', parsedSignature);
 
       // Verify certificate
       const isCertValid = await crypto.verifyCertificate(parsedSignature.certificate);
@@ -163,15 +152,6 @@ const DocumentSigner: React.FC = () => {
     return new Date(timestamp).toLocaleString();
   };
 
-  // Debug info
-  const debugInfo = {
-    hasFile: !!selectedFile,
-    hasCertificate: !!crypto.certificate,
-    hasSigningKey: !!crypto.signingKeyPair,
-    certificateSubject: crypto.certificate?.subject,
-    isInitializing: crypto.isInitializing
-  };
-
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
       <div className="text-center">
@@ -180,18 +160,6 @@ const DocumentSigner: React.FC = () => {
         </div>
         <h1 className="text-3xl font-bold text-white mb-2">Document Signer</h1>
         <p className="text-gray-400">Sign and verify documents with digital certificates</p>
-        
-        {/* Debug Info - Remove in production */}
-        <div className="mt-4 bg-gray-800 rounded-lg p-4 text-left">
-          <h3 className="text-sm font-semibold text-yellow-400 mb-2">Debug Info:</h3>
-          <div className="text-xs text-gray-300 space-y-1">
-            <p>File Selected: {debugInfo.hasFile ? '✅' : '❌'}</p>
-            <p>Certificate Available: {debugInfo.hasCertificate ? '✅' : '❌'}</p>
-            <p>Signing Key Available: {debugInfo.hasSigningKey ? '✅' : '❌'}</p>
-            <p>Certificate Subject: {debugInfo.certificateSubject || 'None'}</p>
-            <p>Crypto Initializing: {debugInfo.isInitializing ? 'Yes' : 'No'}</p>
-          </div>
-        </div>
         
         {/* How it works button */}
         <button
