@@ -22,6 +22,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
   const [showDocumentSigner, setShowDocumentSigner] = useState(false);
   const [showCertInfo, setShowCertInfo] = useState(false);
   const [showAudioPermissionDialog, setShowAudioPermissionDialog] = useState(false);
+  const [audioError, setAudioError] = useState<string>('');
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageEndRef = useRef<HTMLDivElement>(null);
@@ -90,10 +91,39 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
     }
   };
 
+  const checkAudioSupport = (): string | null => {
+    // Check if getUserMedia is supported
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return 'Your browser does not support audio recording. Please use a modern browser like Chrome, Firefox, or Safari.';
+    }
+
+    // Check if MediaRecorder is supported
+    if (!window.MediaRecorder) {
+      return 'Your browser does not support audio recording. Please update your browser or try a different one.';
+    }
+
+    // Check if we're on HTTPS (required for microphone access)
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+      return 'Audio recording requires a secure connection (HTTPS). Please access the site via HTTPS.';
+    }
+
+    return null;
+  };
+
   const requestAudioPermission = async () => {
     setShowAudioPermissionDialog(false);
+    setAudioError('');
     
+    // Check browser support first
+    const supportError = checkAudioSupport();
+    if (supportError) {
+      setAudioError(supportError);
+      return;
+    }
+
     try {
+      console.log('Requesting microphone permission...');
+      
       // Request microphone permission with better error handling
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -103,26 +133,31 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
         } 
       });
       
+      console.log('Microphone permission granted, stream:', stream);
       setAudioStream(stream);
       setIsRecording(true);
       setAudioChunks([]);
 
       // Check MediaRecorder support with fallback
-      let mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported('audio/webm')) {
-        if (MediaRecorder.isTypeSupported('audio/mp4')) {
+      let mimeType = 'audio/webm;codecs=opus';
+      if (!MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        if (MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
           mimeType = 'audio/mp4';
-        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
-          mimeType = 'audio/ogg';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          mimeType = 'audio/ogg;codecs=opus';
         } else {
           throw new Error('No supported audio format found');
         }
       }
 
+      console.log('Using MIME type:', mimeType);
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorder.current = recorder;
 
       recorder.ondataavailable = (e) => {
+        console.log('Audio data available:', e.data.size);
         if (e.data.size > 0) {
           setAudioChunks((chunks) => [...chunks, e.data]);
         }
@@ -131,13 +166,33 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
       recorder.onerror = (e) => {
         console.error('MediaRecorder error:', e);
         stopRecording();
-        alert('Recording error occurred. Please try again.');
+        setAudioError('Recording error occurred. Please try again.');
       };
 
       recorder.start(100); // Collect data every 100ms
+      console.log('Recording started');
     } catch (error) {
       console.error('Failed to start recording:', error);
-      alert('Microphone access denied. Please enable microphone permissions in your browser settings and try again.');
+      
+      let errorMessage = 'Could not access microphone. ';
+      
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError') {
+          errorMessage += 'Please allow microphone access in your browser settings and try again.';
+        } else if (error.name === 'NotFoundError') {
+          errorMessage += 'No microphone found. Please connect a microphone and try again.';
+        } else if (error.name === 'NotReadableError') {
+          errorMessage += 'Microphone is being used by another application. Please close other apps and try again.';
+        } else if (error.name === 'OverconstrainedError') {
+          errorMessage += 'Microphone constraints could not be satisfied. Please try again.';
+        } else {
+          errorMessage += error.message;
+        }
+      } else {
+        errorMessage += 'Please check your microphone settings and try again.';
+      }
+      
+      setAudioError(errorMessage);
       setIsRecording(false);
     }
   };
@@ -145,7 +200,14 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
   const startRecording = async () => {
     if (!isPaired) return;
     
-    // Show permission dialog instead of directly requesting
+    // Check browser support first
+    const supportError = checkAudioSupport();
+    if (supportError) {
+      setAudioError(supportError);
+      return;
+    }
+    
+    // Show permission dialog
     setShowAudioPermissionDialog(true);
   };
 
@@ -160,6 +222,8 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
 
       mediaRecorder.current.onstop = async () => {
         try {
+          console.log('Recording stopped, processing audio chunks:', audioChunks.length);
+          
           if (audioChunks.length === 0) {
             console.warn('No audio data recorded');
             resolve();
@@ -169,6 +233,8 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
           const audioBlob = new Blob(audioChunks, { 
             type: mediaRecorder.current?.mimeType || 'audio/webm' 
           });
+          
+          console.log('Audio blob created:', audioBlob.size, 'bytes');
           
           // Check if we have actual audio data
           if (audioBlob.size === 0) {
@@ -182,6 +248,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
             const audioDataUrl = e.target?.result as string;
             try {
               await sendMessage(audioDataUrl, 'audio');
+              console.log('Audio message sent successfully');
             } catch (error) {
               console.error('Failed to send audio:', error);
               alert('Failed to send audio message. Please try again.');
@@ -199,7 +266,10 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
         
         // Cleanup
         if (audioStream) {
-          audioStream.getTracks().forEach(track => track.stop());
+          audioStream.getTracks().forEach(track => {
+            track.stop();
+            console.log('Audio track stopped');
+          });
         }
         setAudioStream(null);
         setIsRecording(false);
@@ -210,6 +280,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
       // Stop recording
       if (mediaRecorder.current.state === 'recording') {
         mediaRecorder.current.stop();
+        console.log('Stopping recording...');
       }
     });
   };
@@ -270,6 +341,14 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
               To record and send voice messages, we need access to your microphone. 
               Your audio will be encrypted and sent securely.
             </p>
+            <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-3 mb-4">
+              <p className="text-blue-300 text-sm">
+                <strong>Requirements:</strong><br/>
+                • Modern browser (Chrome, Firefox, Safari)<br/>
+                • Microphone connected and working<br/>
+                • Allow microphone permission when prompted
+              </p>
+            </div>
             <div className="flex space-x-3">
               <Button
                 onClick={requestAudioPermission}
@@ -285,6 +364,35 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
                 Cancel
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audio Error Dialog */}
+      {audioError && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md mx-4">
+            <div className="flex items-center space-x-3 mb-4">
+              <X className="w-6 h-6 text-red-400" />
+              <h3 className="text-lg font-semibold text-red-400">Audio Recording Error</h3>
+            </div>
+            <p className="text-gray-300 mb-6">{audioError}</p>
+            <div className="bg-red-900/30 border border-red-700 rounded-lg p-3 mb-4">
+              <p className="text-red-300 text-sm">
+                <strong>Troubleshooting:</strong><br/>
+                • Check if your microphone is connected<br/>
+                • Allow microphone access in browser settings<br/>
+                • Close other apps using the microphone<br/>
+                • Try refreshing the page
+              </p>
+            </div>
+            <Button
+              onClick={() => setAudioError('')}
+              variant="secondary"
+              className="w-full"
+            >
+              Close
+            </Button>
           </div>
         </div>
       )}
