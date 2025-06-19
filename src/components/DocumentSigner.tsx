@@ -56,17 +56,9 @@ const DocumentSigner: React.FC = () => {
     setError('');
 
     try {
-      // Ensure we have the private key as CryptoKey
-      const privateKey = crypto.signingKeyPair.privateKey;
-      
-      // Verify it's actually a CryptoKey
-      if (!(privateKey instanceof CryptoKey)) {
-        throw new Error('Invalid private key format');
-      }
-
       const signature = await DigitalSigner.signDocument(
         selectedFile,
-        privateKey,
+        crypto.signingKeyPair.privateKey,
         crypto.certificate
       );
 
@@ -161,7 +153,6 @@ const DocumentSigner: React.FC = () => {
         <h1 className="text-3xl font-bold text-white mb-2">Document Signer</h1>
         <p className="text-gray-400">Sign and verify documents with digital certificates</p>
         
-        {/* How it works button */}
         <button
           onClick={() => setShowMechanism(!showMechanism)}
           className="mt-4 flex items-center space-x-2 mx-auto px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors"
@@ -280,23 +271,6 @@ const DocumentSigner: React.FC = () => {
                   </p>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Show requirements if not met */}
-          {(!crypto.certificate || !crypto.signingKeyPair) && (
-            <div className="bg-yellow-900/20 border border-yellow-700 rounded-lg p-4">
-              <div className="flex items-center space-x-2">
-                <AlertCircle className="w-5 h-5 text-yellow-400" />
-                <span className="text-yellow-400 font-medium">Requirements Not Met</span>
-              </div>
-              <ul className="text-sm text-yellow-300 mt-2 space-y-1">
-                {!crypto.certificate && <li>• Digital certificate is required</li>}
-                {!crypto.signingKeyPair && <li>• Signing key pair is required</li>}
-              </ul>
-              <p className="text-xs text-yellow-400 mt-2">
-                Please ensure you have set a username and the crypto system is initialized.
-              </p>
             </div>
           )}
 

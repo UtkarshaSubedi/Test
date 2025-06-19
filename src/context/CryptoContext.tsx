@@ -43,18 +43,18 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [certificateManager] = useState(() => CertificateManager.getInstance());
   const [sessionStartTime] = useState(Date.now());
 
-  // Initialize crypto on mount - but don't generate certificate until username is set
+  // Initialize crypto on mount
   useEffect(() => {
     const initializeCrypto = async () => {
       try {
         setIsInitializing(true);
         
-        // Only generate signing key pair initially
-        await generateSigningKeyPair();
+        // Generate signing key pair first
+        const newSigningKeyPair = await generateSigningKeyPair();
         
         // Check if we have a saved username and generate certificate
         const savedUsername = localStorage.getItem('cipher-username');
-        if (savedUsername) {
+        if (savedUsername && newSigningKeyPair) {
           await generateCertificate(savedUsername);
         }
         
@@ -128,31 +128,24 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   };
 
-  // Generate certificate for user - valid only for current session
+  // Generate certificate for user
   const generateCertificate = async (subject: string): Promise<Certificate> => {
-    if (!signingKeyPair) {
-      // If signing key pair doesn't exist, generate it first
-      await generateSigningKeyPair();
-    }
-
-    if (!signingKeyPair) {
-      throw new Error('Signing key pair not available');
+    // Ensure we have a signing key pair
+    let currentSigningKeyPair = signingKeyPair;
+    if (!currentSigningKeyPair) {
+      currentSigningKeyPair = await generateSigningKeyPair();
     }
 
     try {
-      // Add timestamp to make username unique in case of duplicates
       const uniqueSubject = `${subject}-${Date.now().toString(36)}`;
-      
-      // Certificate valid only for current session (expires when connection ends)
       const sessionDuration = 24 * 60 * 60 * 1000; // 24 hours max
       
       const cert = await certificateManager.issueCertificate(
         uniqueSubject,
-        signingKeyPair.publicKey,
-        1 // 1 day validity, but will be invalidated when session ends
+        currentSigningKeyPair.publicKey,
+        1
       );
       
-      // Override the timestamps to reflect session-based validity
       cert.issuedAt = sessionStartTime;
       cert.expiresAt = sessionStartTime + sessionDuration;
       
@@ -184,7 +177,6 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // Simple encryption for messages (fallback)
   const encryptMessage = async (message: string): Promise<EncryptedData> => {
     try {
-      // Simple AES-GCM encryption
       const key = await window.crypto.subtle.generateKey(
         { name: 'AES-GCM', length: 256 },
         false,
@@ -214,7 +206,6 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // Simple decryption for messages (fallback)
   const decryptMessage = async (encryptedData: EncryptedData): Promise<string> => {
     try {
-      // For now, just return the original message since we're using simple communication
       return "Decrypted message";
     } catch (error) {
       console.error('Failed to decrypt message:', error);
@@ -243,7 +234,6 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     senderCert: Certificate
   ): Promise<boolean> => {
     try {
-      // First verify the certificate is still valid for current session
       const isCertValid = await certificateManager.verifyCertificate(senderCert);
       const isSessionValid = Date.now() < senderCert.expiresAt;
       
@@ -252,7 +242,6 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         return false;
       }
 
-      // Then verify the message signature
       const senderPublicKey = await certificateManager.importPublicKey(senderCert.publicKey);
       return await DigitalSigner.verifySignature(message, signature, senderPublicKey);
     } catch (error) {
@@ -280,11 +269,11 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         'raw',
         binaryKey,
         {
-          name: 'ECDH',
+          name: 'ECDSA',
           namedCurve: 'P-256'
         },
         true,
-        []
+        ['verify']
       );
     } catch (error) {
       console.error('Failed to import public key:', error);
@@ -307,7 +296,6 @@ export const CryptoProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // Reset the crypto context
   const reset = () => {
     try {
-      // Secure cleanup
       secureWipe(keyPair);
       secureWipe(signingKeyPair);
       secureWipe(certificate);

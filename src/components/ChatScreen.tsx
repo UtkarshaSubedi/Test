@@ -98,79 +98,54 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
     if (!isPaired) return;
     
     try {
-      // Clear any previous error
       setAudioError('');
       
-      // Request microphone access with specific constraints
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 44100
+          autoGainControl: true
         } 
       });
       
       audioStreamRef.current = stream;
       audioChunksRef.current = [];
       
-      // Determine the best supported MIME type
-      let mimeType = 'audio/webm;codecs=opus';
-      const supportedTypes = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/mp4',
-        'audio/ogg;codecs=opus',
-        'audio/wav'
-      ];
-      
-      for (const type of supportedTypes) {
-        if (MediaRecorder.isTypeSupported(type)) {
-          mimeType = type;
-          break;
+      // Simple MIME type selection
+      let mimeType = 'audio/webm';
+      if (!MediaRecorder.isTypeSupported('audio/webm')) {
+        if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+          mimeType = 'audio/ogg';
         }
       }
 
-      // Create MediaRecorder
-      const recorder = new MediaRecorder(stream, { 
-        mimeType,
-        audioBitsPerSecond: 128000
-      });
-      
+      const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
 
-      // Set up event handlers
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
 
-      recorder.onstop = async () => {
-        try {
-          if (audioChunksRef.current.length > 0) {
-            const audioBlob = new Blob(audioChunksRef.current, { 
-              type: mimeType 
-            });
-            
-            if (audioBlob.size > 0) {
-              // Convert to data URL
-              const reader = new FileReader();
-              reader.onload = async (e) => {
-                const audioDataUrl = e.target?.result as string;
-                if (audioDataUrl && isPaired) {
-                  try {
-                    await sendMessage(audioDataUrl, 'audio');
-                  } catch (error) {
-                    console.error('Failed to send audio:', error);
-                  }
-                }
-              };
-              reader.readAsDataURL(audioBlob);
+      recorder.onstop = () => {
+        if (audioChunksRef.current.length > 0) {
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+          
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+            const audioDataUrl = e.target?.result as string;
+            if (audioDataUrl && isPaired) {
+              try {
+                await sendMessage(audioDataUrl, 'audio');
+              } catch (error) {
+                console.error('Failed to send audio:', error);
+              }
             }
-          }
-        } catch (error) {
-          console.error('Error processing audio:', error);
+          };
+          reader.readAsDataURL(audioBlob);
         }
         
         // Cleanup
@@ -182,19 +157,15 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
         audioChunksRef.current = [];
       };
 
-      recorder.onerror = (event) => {
-        console.error('MediaRecorder error:', event);
+      recorder.onerror = () => {
         stopRecording();
         setAudioError('Recording failed. Please try again.');
       };
 
-      // Start recording
-      recorder.start(100); // Collect data every 100ms
+      recorder.start();
       setIsRecording(true);
       
     } catch (error) {
-      console.error('Failed to start recording:', error);
-      
       let errorMessage = 'Could not access microphone. ';
       
       if (error instanceof Error) {
@@ -202,13 +173,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
           errorMessage += 'Please allow microphone access and try again.';
         } else if (error.name === 'NotFoundError') {
           errorMessage += 'No microphone found.';
-        } else if (error.name === 'NotReadableError') {
-          errorMessage += 'Microphone is being used by another application.';
         } else {
           errorMessage += 'Please check your microphone settings.';
         }
-      } else {
-        errorMessage += 'Please check your microphone settings.';
       }
       
       setAudioError(errorMessage);
@@ -269,7 +236,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ onLeave }) => {
 
   return (
     <div className="max-w-4xl mx-auto h-screen flex flex-col">
-      {/* Audio Error Dialog - Only show when there's an error */}
+      {/* Audio Error Dialog */}
       {audioError && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-lg p-6 max-w-md mx-4">
